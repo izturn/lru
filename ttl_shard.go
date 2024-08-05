@@ -54,6 +54,11 @@ func (s *ttlshard[K, V]) Init(size uint32, hasher func(key unsafe.Pointer, seed 
 	s.table_Init(size, hasher, seed)
 }
 
+// stoper is an interface that defines a method to stop an operation.
+type stoper interface {
+	Stop() error
+}
+
 func (s *ttlshard[K, V]) Get(hash uint32, key K) (value V, ok bool) {
 	s.mu.Lock()
 
@@ -74,6 +79,12 @@ func (s *ttlshard[K, V]) Get(hash uint32, key K) (value V, ok bool) {
 			value = (*ttlnode[K, V])(unsafe.Add(unsafe.Pointer(&s.list[0]), uintptr(index)*unsafe.Sizeof(s.list[0]))).value
 			ok = true
 		} else {
+
+			val := (*ttlnode[K, V])(unsafe.Add(unsafe.Pointer(&s.list[0]), uintptr(index)*unsafe.Sizeof(s.list[0]))).value
+			if st, ok := any(val).(stoper); ok {
+				_ = st.Stop()
+			}
+
 			s.list_MoveToBack(index)
 			// s.list[index].value = value
 			(*ttlnode[K, V])(unsafe.Add(unsafe.Pointer(&s.list[0]), uintptr(index)*unsafe.Sizeof(s.list[0]))).value = value
@@ -207,6 +218,11 @@ func (s *ttlshard[K, V]) Delete(hash uint32, key K) (v V) {
 	if index, exists := s.table_Get(hash, key); exists {
 		node := &s.list[index]
 		value := node.value
+
+		if st, ok := any(value).(stoper); ok {
+			_ = st.Stop()
+		}
+
 		s.list_MoveToBack(index)
 		node.value = v
 		s.table_Delete(hash, key)
